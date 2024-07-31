@@ -6,6 +6,7 @@ import SignupScreen from './screens/SignupScreen';
 import OTPVerificationScreen from './screens/OTPVerificationScreen';
 import FirstLastNameScreen from './screens/FirstLastNameScreen';
 import DateOfBirthScreen from './screens/DateOfBirthScreen';
+import AddressScreen from './screens/AddressScreen';
 // Import other screens as needed
 
 const Stack = createStackNavigator();
@@ -18,7 +19,8 @@ const App = () => {
         <Stack.Screen name="OTPVerificationScreen" component={OTPVerificationScreen} />
         <Stack.Screen name="FirstLastNameScreen" component={FirstLastNameScreen} />
         <Stack.Screen name="DateOfBirthScreen" component={DateOfBirthScreen} />
-        {/* Add other screens here */}
+        <Stack.Screen name='AddressScreen' component={AddressScreen}/>
+    
       </Stack.Navigator>
     </NavigationContainer>
   );

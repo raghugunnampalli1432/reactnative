@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
-import { useNavigation, RouteProp } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
+import { RouteProp, StackNavigationProp } from '@react-navigation/native';
 import moment from 'moment';
 
 type RootStackParamList = {
@@ -9,6 +8,7 @@ type RootStackParamList = {
   OTPVerificationScreen: { emailOrPhone: string };
   FirstLastNameScreen: { emailOrPhone: string };
   DateOfBirthScreen: { firstName: string; lastName: string };
+  AddressScreen: { firstName: string; lastName: string; dateOfBirth: string };
 };
 
 type DateOfBirthScreenRouteProp = RouteProp<RootStackParamList, 'DateOfBirthScreen'>;
@@ -23,15 +23,17 @@ const DateOfBirthScreen: React.FC<Props> = ({ route, navigation }) => {
   const { firstName, lastName } = route.params;
   const [dateOfBirth, setDateOfBirth] = useState<string>('');
   const [isDateValid, setIsDateValid] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   const handleDateOfBirthChange = (text: string) => {
     setDateOfBirth(text);
     setIsDateValid(/^(\d{4})-(\d{2})-(\d{2})$/.test(text)); // Check if the entered date is in YYYY-MM-DD format
+    setErrorMessage(''); // Clear any existing error message when the date changes
   };
 
   const handleNextPress = () => {
     if (!isDateValid) {
-      Alert.alert('Error', 'Please enter a date in YYYY-MM-DD format.');
+      setErrorMessage('Please enter a date in YYYY-MM-DD format.');
       return;
     }
 
@@ -39,20 +41,20 @@ const DateOfBirthScreen: React.FC<Props> = ({ route, navigation }) => {
     const age = moment().diff(birthDate, 'years');
 
     if (!birthDate.isValid()) {
-      Alert.alert('Error', 'Please enter a valid date.');
+      setErrorMessage('Please enter a valid date.');
       return;
     }
     if (age < 18) {
-      Alert.alert('Error', 'You must be at least 18 years old.');
+      setErrorMessage('You must be at least 18 years old.');
       return;
     }
     if (age > 120) {
-      Alert.alert('Error', 'You must be 120 years old or younger.');
+      setErrorMessage('You must be 120 years old or younger.');
       return;
     }
 
-    // Navigate to the next screen or handle the next action
-    navigation.navigate('NextScreen', { firstName, lastName, dateOfBirth });
+    // Navigate to EnterManualAddressScreen with parameters
+    navigation.navigate('AddressScreen', { firstName, lastName, dateOfBirth });
   };
 
   return (
@@ -65,6 +67,7 @@ const DateOfBirthScreen: React.FC<Props> = ({ route, navigation }) => {
         onChangeText={handleDateOfBirthChange}
         placeholder="Enter your date of birth"
       />
+      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
       <Button
         title="Next"
         onPress={handleNextPress}
@@ -89,8 +92,12 @@ const styles = StyleSheet.create({
     height: 40,
     borderColor: 'gray',
     borderWidth: 1,
-    marginBottom: 16,
+    marginBottom: 8,
     paddingHorizontal: 8,
+  },
+  errorText: {
+    color: 'red',
+    marginBottom: 16,
   },
 });
 

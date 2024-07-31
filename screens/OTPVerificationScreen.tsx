@@ -120,9 +120,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 10,
   },
-  highlighted: {
-    backgroundColor: '#ffffcc', // Example background color for highlighting
-  },
+  // highlighted: {
+  //   backgroundColor: '#ffffcc', // Example background color for highlighting
+  // },
 });
 
 export default OTPVerificationScreen;
