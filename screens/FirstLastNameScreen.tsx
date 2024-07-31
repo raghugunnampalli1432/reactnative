@@ -90,7 +90,4 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'red',
     marginBottom: 8,
-  },
-});
-
-export default FirstLastNameScreen;
+  }
