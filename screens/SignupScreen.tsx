@@ -1,6 +1,5 @@
-// SignupScreen.tsx
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity, Image, Dimensions } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 
@@ -131,7 +130,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
-    padding: 16,
+    paddingHorizontal: 16, // Added paddingHorizontal for edge spacing
   },
   logoContainer: {
     alignItems: 'center',
@@ -195,6 +194,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderRadius: 5,
+    width: '100%', // Ensure button spans full width of container
   },
   joinButtonPurple: {
     backgroundColor: 'purple', // Updated purple color

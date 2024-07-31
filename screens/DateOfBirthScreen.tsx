@@ -57,7 +57,7 @@ const DateOfBirthScreen: React.FC<Props> = ({ route, navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>What's your date of birth? </Text>
+      <Text style={styles.label}>What's your date of birth?</Text>
       <Text style={styles.label}>Date of Birth (YYYY-MM-DD):</Text>
       <TextInput
         style={styles.input}

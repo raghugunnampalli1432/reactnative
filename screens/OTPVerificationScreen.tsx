@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Alert, KeyboardAvoidingView } from 'react-native';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
@@ -52,33 +52,35 @@ const OTPVerificationScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   return (
-    <View style={[styles.container, highlighted && styles.highlighted]}>
-      <Text style={styles.label}>Did you get our text?</Text>
-      
-      <View style={styles.inputContainer}>
-        {/* Create 6 TextInput components for each digit */}
-        {[...Array(6)].map((_, index) => (
-          <TextInput
-            key={index}
-            style={[styles.input, otp.length === 6 && styles.inputFilled]}
-            value={otp[index] || ''}
-            onChangeText={(text) => {
-              const newOtp = [...otp];
-              newOtp[index] = text;
-              setOtp(newOtp.join('').slice(0, 6)); // Ensure only 6 digits are kept
-            }}
-            maxLength={1}
-            keyboardType="numeric"
-          />
-        ))}
+    <KeyboardAvoidingView style={styles.container} behavior="padding">
+      <View style={[styles.innerContainer, highlighted && styles.highlighted]}>
+        <Text style={styles.label}>Did you get our text?</Text>
+        
+        <View style={styles.inputContainer}>
+          {/* Create 6 TextInput components for each digit */}
+          {[...Array(6)].map((_, index) => (
+            <TextInput
+              key={index}
+              style={[styles.input, otp.length === 6 && styles.inputFilled]}
+              value={otp[index] || ''}
+              onChangeText={(text) => {
+                const newOtp = [...otp];
+                newOtp[index] = text;
+                setOtp(newOtp.join('').slice(0, 6)); // Ensure only 6 digits are kept
+              }}
+              maxLength={1}
+              keyboardType="numeric"
+            />
+          ))}
+        </View>
+        <Button
+          title="Verify"
+          onPress={handleVerifyPress}
+          color={otp.length === 6 ? 'purple' : undefined}
+        />
+        <Text style={styles.timer}>Timer: {timer} seconds</Text>
       </View>
-      <Button
-        title="Verify"
-        onPress={handleVerifyPress}
-        color={otp.length === 6 ? 'purple' : undefined}
-      />
-      <Text style={styles.timer}>Timer: {timer} seconds</Text>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -88,7 +90,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 16,
   },
- 
+  innerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   label: {
     fontSize: 18,
     marginBottom: 8,
@@ -113,6 +119,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginTop: 10,
+  },
+  highlighted: {
+    backgroundColor: '#ffffcc', // Example background color for highlighting
   },
 });
 
