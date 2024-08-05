@@ -1,0 +1,60 @@
+package main
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
+	"os"
+)
+
+func generatePrivateKey() (*rsa.PrivateKey, error) {
+	return rsa.GenerateKey(rand.Reader, 2048)
+}
+
+func savePrivateKeyToPEM(privateKey *rsa.PrivateKey, filename string, password []byte) error {
+	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+
+	// Encrypt the private key
+	encryptedPEMBlock, err := x509.EncryptPEMBlock(
+		rand.Reader,
+		"RSA PRIVATE KEY",
+		privateKeyBytes,
+		password,
+		x509.PEMCipherAES256,
+	)
+	if err != nil {
+		return fmt.Errorf("error encrypting PEM block: %v", err)
+	}
+
+	pemFile, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("error creating PEM file: %v", err)
+	}
+	defer pemFile.Close()
+
+	if err := pem.Encode(pemFile, encryptedPEMBlock); err != nil {
+		return fmt.Errorf("error encoding PEM file: %v", err)
+	}
+
+	return nil
+}
+
+func main() {
+	privateKey, err := generatePrivateKey()
+	if err != nil {
+		fmt.Printf("Error generating private key: %v\n", err)
+		return
+	}
+
+	password := []byte("your_password") // Replace with your actual password
+
+	err = savePrivateKeyToPEM(privateKey, "private_key.pem", password)
+	if err != nil {
+		fmt.Printf("Error saving private key to PEM file: %v\n", err)
+		return
+	}
+
+	fmt.Println("Private key saved to private_key.pem")
+}
