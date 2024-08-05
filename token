@@ -1,0 +1,94 @@
+package main
+
+import (
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+type CustomClaims struct {
+	jwt.RegisteredClaims
+	CustomField string `json:"custom_field"`
+}
+
+// createPayload defines the payload of the PoP token, including necessary claims and attributes.
+func createPayload() CustomClaims {
+	return CustomClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "example_issuer",
+			Audience:  jwt.ClaimStrings{"example_audience"},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)), // Expires in 1 hour
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		CustomField: "example_custom_value",
+	}
+}
+
+// getPrivateKeyFromPEM parses the private key from PEM format.
+func getPrivateKeyFromPEM(pemData []byte, password []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block containing private key")
+	}
+
+	// Decrypt the PEM block if it is encrypted
+	var decryptedKey []byte
+	var err error
+	if x509.IsEncryptedPEMBlock(block) {
+		decryptedKey, err = x509.DecryptPEMBlock(block, password)
+		if err != nil {
+			return nil, fmt.Errorf("error decrypting PEM block: %v", err)
+		}
+	} else {
+		decryptedKey = block.Bytes
+	}
+
+	// Parse the decrypted key
+	privateKey, err := x509.ParsePKCS1PrivateKey(decryptedKey)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing private key: %v", err)
+	}
+
+	return privateKey, nil
+}
+
+// signToken signs the payload using the private key to create the PoP token.
+func signToken(claims CustomClaims, privateKey *rsa.PrivateKey) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	return token.SignedString(privateKey)
+}
+
+func main() {
+	// Load your private key from the PEM file
+	privateKeyPEM, err := os.ReadFile("ehub_key_pair_npe.p8.pem")
+	if err != nil {
+		fmt.Printf("Error reading private key: %v\n", err)
+		return
+	}
+
+	// Replace with your actual password for the private key
+	password := []byte("your_password")
+
+	privateKey, err := getPrivateKeyFromPEM(privateKeyPEM, password)
+	if err != nil {
+		fmt.Printf("Error getting private key: %v\n", err)
+		return
+	}
+
+	// Create the token payload
+	claims := createPayload()
+
+	// Sign the token
+	token, err := signToken(claims, privateKey)
+	if err != nil {
+		fmt.Printf("Error signing token: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Generated PoP Token: %s\n", token)
+}
