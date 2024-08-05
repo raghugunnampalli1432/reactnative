@@ -1,0 +1,67 @@
+package main
+
+import (
+    "crypto/ecdsa"
+    "crypto/x509"
+    "encoding/pem"
+    "flag"
+    "fmt"
+    "io/ioutil"
+    "log"
+)
+
+func main() {
+    // Define flags for command-line arguments
+    privateKeyPath := flag.String("private-key", "", "Path to the encrypted private key")
+    passphrase := flag.String("passphrase", "", "Passphrase for the encrypted private key")
+    flag.Parse()
+
+    // Check if private key path is provided
+    if *privateKeyPath == "" {
+        log.Fatalf("Private key path is required")
+    }
+
+    // Check if passphrase is provided
+    if *passphrase == "" {
+        log.Fatalf("Passphrase is required")
+    }
+
+    // Read the encrypted private key file
+    keyData, err := ioutil.ReadFile(*privateKeyPath)
+    if err != nil {
+        log.Fatalf("Failed to read private key file: %v", err)
+    }
+
+    // Decode PEM block
+    block, _ := pem.Decode(keyData)
+    if block == nil {
+        log.Fatalf("Failed to decode PEM block")
+    }
+
+    // Decrypt the private key
+    decryptedKey, err := x509.DecryptPEMBlock(block, []byte(*passphrase))
+    if err != nil {
+        log.Fatalf("Failed to decrypt private key: %v", err)
+    }
+
+    // Parse the decrypted key
+    privateKey, err := x509.ParseECPrivateKey(decryptedKey)
+    if err != nil {
+        log.Fatalf("Failed to parse private key: %v", err)
+    }
+
+    // Generate a token (example logic)
+    token, err := generateToken(privateKey)
+    if err != nil {
+        log.Fatalf("Failed to generate token: %v", err)
+    }
+
+    // Output the token
+    fmt.Printf("Generated token: %s\n", token)
+}
+
+// Example function to generate a token (replace with actual logic)
+func generateToken(privateKey *ecdsa.PrivateKey) (string, error) {
+    // Example logic for generating a token; replace with your actual logic
+    return "example-token-generated", nil
+}
