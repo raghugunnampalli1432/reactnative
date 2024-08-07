@@ -1,0 +1,228 @@
+package main
+
+import (
+	"bytes"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
+)
+
+const popTokenValidity = 2 * time.Minute
+const maxNumberOfEhts = 100
+
+const (
+	pkcs8PrivateKeyPrefix = "-----BEGIN PRIVATE KEY-----"
+	pkcs8PrivateKeySuffix = "-----END PRIVATE KEY-----"
+)
+
+// Constants for PopEhtsKeys
+const (
+	PopEhtsUriKey        = "uri"
+	PopEhtsBodyKey       = "body"
+	PopEhtsHttpMethodKey = "http-method"
+)
+
+// Builder instance struct
+type Builder struct {
+	rsaPrivateKey          *rsa.PrivateKey
+	rsaPrivateKeyPemString string
+	ehtsKeyValueMap        map[string]string
+}
+
+// popTokenClaims custom popToken claims struct
+type popTokenClaims struct {
+	Ehts string `json:"ehts"`
+	Edts string `json:"edts"`
+	Jti  string `json:"jti"`
+	V    string `json:"v"`
+	jwt.RegisteredClaims
+}
+
+// NewInstance creates a new instance of Builder
+func NewInstance() *Builder {
+	return &Builder{}
+}
+
+// SetEhtsKeyValueMap sets ehtsKeyValueMap to Builder
+func (builder *Builder) SetEhtsKeyValueMap(ehtsKeyValueMap map[string]string) *Builder {
+	builder.ehtsKeyValueMap = ehtsKeyValueMap
+	return builder
+}
+
+// SetRsaPrivateKeyPemString sets rsaPrivateKeyPemString to Builder
+func (builder *Builder) SetRsaPrivateKeyPemString(rsaPrivateKeyPemString string) *Builder {
+	builder.rsaPrivateKeyPemString = rsaPrivateKeyPemString
+	return builder
+}
+
+// SetRsaPrivateKey sets rsa.PrivateKey to Builder
+func (builder *Builder) SetRsaPrivateKey(rsaPrivateKey *rsa.PrivateKey) *Builder {
+	builder.rsaPrivateKey = rsaPrivateKey
+	return builder
+}
+
+// Build creates a PoP token using ehtsKeyValueMap and rsaPrivateKeyPemString or rsaPrivateKey.
+// We need to provide either rsaPrivateKeyPemString or rsaPrivateKey
+func (builder Builder) Build() (string, error) {
+	if builder.ehtsKeyValueMap == nil || len(builder.ehtsKeyValueMap) == 0 || doesContainAnyEmptyKeysOrValues(builder.ehtsKeyValueMap) {
+		return "", errors.New("ehtsKeyValueMap should not be null or empty and should not contain any null or empty ehts keys or values")
+	}
+	if len(builder.ehtsKeyValueMap) > maxNumberOfEhts {
+		return "", errors.New("ehtsKeyValueMap should not contain more than " + strconv.Itoa(maxNumberOfEhts) + " entries")
+	}
+	if builder.rsaPrivateKey == nil && len(builder.rsaPrivateKeyPemString) == 0 {
+		return "", errors.New("either rsaPrivateKey or rsaPrivateKeyPemString should be provided to sign the PoP token")
+	}
+
+	if builder.rsaPrivateKey != nil && len(builder.rsaPrivateKeyPemString) != 0 {
+		return "", errors.New("either rsaPrivateKey or rsaPrivateKeyPemString should be provided to sign the PoP token")
+	}
+	if builder.rsaPrivateKey == nil {
+		key, err := keyPemStringToRsaPrivateKey(builder.rsaPrivateKeyPemString)
+		if err != nil {
+			return "", err
+		}
+		builder.rsaPrivateKey = key
+	}
+	now := time.Now()
+	ehts, edts := buildEhtsAndEdtsStrings(builder.ehtsKeyValueMap)
+	claims := popTokenClaims{
+		Ehts: ehts,
+		Edts: edts,
+		Jti:  getUniqueIdentifier(),
+		V:    getVersion(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  getIssuedAt(now),
+			ExpiresAt: getExpiration(now),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(builder.rsaPrivateKey)
+}
+
+// buildEhtsAndEdtsStrings builds ehts and edts based on ehtsKeyValueMap
+func buildEhtsAndEdtsStrings(ehtsKeyValueMap map[string]string) (ehts string, edts string) {
+	var ehtsString strings.Builder
+	var edtsString strings.Builder
+	for key, value := range ehtsKeyValueMap {
+		if ehtsString.Len() > 0 {
+			ehtsString.WriteString(";")
+		}
+		ehtsString.WriteString(key)
+		edtsString.WriteString(value)
+	}
+	return ehtsString.String(), sha256Base64UrlSafeString(edtsString.String())
+}
+
+// sha256Base64UrlSafeString converts edtsString to sha256Base64UrlSafeString
+func sha256Base64UrlSafeString(edtsString string) string {
+	edtsHash := sha256.New()
+	edtsHash.Write([]byte(edtsString))
+	expectedEdtsHash := base64.URLEncoding.EncodeToString(edtsHash.Sum(nil))
+	// Remove the base64 padding, otherwise it won't work
+	expectedEdtsHash = strings.ReplaceAll(expectedEdtsHash, "=", "")
+	return expectedEdtsHash
+}
+
+// getUniqueIdentifier returns random UUID
+func getUniqueIdentifier() string {
+	id, _ := uuid.NewRandom()
+	return id.String()
+}
+
+// getVersion returns version
+func getVersion() string {
+	return "1"
+}
+
+// getIssuedAt returns currentTime
+func getIssuedAt(now time.Time) *jwt.NumericDate {
+	return jwt.NewNumericDate(now)
+}
+
+// getExpiration returns currentTime+popTokenValidity
+func getExpiration(now time.Time) *jwt.NumericDate {
+	return jwt.NewNumericDate(now.Add(popTokenValidity))
+}
+
+// doesContainAnyEmptyKeysOrValues checks whether any of the keys or values are empty in ehtsKeyValueMap
+func doesContainAnyEmptyKeysOrValues(ehtsKeyValueMap map[string]string) bool {
+	for key, value := range ehtsKeyValueMap {
+		if len(key) == 0 || len(value) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// keyPemStringToRsaPrivateKey converts PemString to rsa.PrivateKey
+func keyPemStringToRsaPrivateKey(privateKeyPemString string) (*rsa.PrivateKey, error) {
+	if len(privateKeyPemString) == 0 {
+		return nil, errors.New("the privateKeyPemString should not be null or empty")
+	}
+	// Ensure it has PKCS#8 format
+	if strings.HasPrefix(privateKeyPemString, pkcs8PrivateKeyPrefix) &&
+		strings.Contains(privateKeyPemString, pkcs8PrivateKeySuffix) {
+		return jwt.ParseRSAPrivateKeyFromPEM([]byte(privateKeyPemString))
+	}
+	return nil, errors.New("the privateKeyPemString contains unsupported format, only PKCS#8 format is currently supported")
+}
+
+// CreatePopToken creates a PoP token based on http.Request and privateKey string
+func CreatePopToken(httpRequest *http.Request, privateKey string) (string, error) {
+	ehtsKeyValueMap := make(map[string]string)
+	ehtsKeyValueMap[PopEhtsUriKey] = httpRequest.URL.RequestURI()
+	ehtsKeyValueMap[PopEhtsHttpMethodKey] = httpRequest.Method
+	if httpRequest.Body != nil {
+		body, err := io.ReadAll(httpRequest.Body)
+		if err == nil {
+			httpRequest.Body = io.NopCloser(bytes.NewBuffer(body))
+			ehtsKeyValueMap[PopEhtsBodyKey] = string(body)
+		}
+	}
+
+	for key := range httpRequest.Header {
+		value := httpRequest.Header.Get(key)
+		if len(value) > 0 {
+			ehtsKeyValueMap[key] = value
+		}
+	}
+	return NewInstance().SetEhtsKeyValueMap(ehtsKeyValueMap).SetRsaPrivateKeyPemString(privateKey).Build()
+}
+
+func main() {
+	privateKeyPath := "private_key.pem"
+
+	// Read the private key from file
+	privateKeyPem, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		fmt.Printf("Error reading private key file: %v\n", err)
+		return
+	}
+
+	// Create an example HTTP request (you would normally use a real request)
+	req, err := http.NewRequest("GET", "https://example.com", nil)
+	if err != nil {
+		fmt.Printf("Error creating HTTP request: %v\n", err)
+		return
+	}
+
+	// Generate PoP token
+	token, err := CreatePopToken(req, string(privateKeyPem))
+	if err != nil {
+		fmt.Printf("Error generating PoP token: %v\n", err)
+		return
+	}
+
+	fmt.Println("Generated PoP Token:", token)
+}
