@@ -22,14 +22,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// Function definitions (e.g., EncryptPrivateKey, CreatePayload, etc.)
-
 func main() {
 	token, err := GeneratePopToken()
 	if err != nil {
 		log.Fatalf("Error generating PoP token: %v", err)
 	}
 	fmt.Println("Generated PoP Token:", token)
+}
+
+// GenerateAESKey generates a random AES key of the specified size (in bytes).
+func GenerateAESKey(size int) ([]byte, error) {
+	if size != 16 && size != 24 && size != 32 {
+		return nil, fmt.Errorf("invalid key size: %d", size)
+	}
+	key := make([]byte, size)
+	_, err := rand.Read(key)
+	if err != nil {
+		return nil, err
+	}
+	return key, nil
 }
 
 // EncryptPrivateKey encrypts the private key using AES encryption.
@@ -134,7 +145,7 @@ func SignToken(claims jwt.MapClaims, privateKey *rsa.PrivateKey) (string, error)
 // GeneratePopToken creates a JWT with encrypted private key and returns it.
 func GeneratePopToken() (string, error) {
 	// Load your private key from the PEM file
-	privateKeyPEM, err := os.ReadFile("private_key.pem") // Update path as needed
+	privateKeyPEM, err := os.ReadFile("ehub_key_pair_npe.p8.pem") // Update path as needed
 	if err != nil {
 		log.Printf("Error reading private key: %v", err)
 		return "", err
@@ -151,8 +162,16 @@ func GeneratePopToken() (string, error) {
 		return "", fmt.Errorf("expected RSA private key")
 	}
 
-	// AES key for encrypting the private key (must be securely managed)
-	aesKey := []byte("your-32-byte-aes-key-here!") // Replace with a secure key
+	// Generate a valid AES key for encrypting the private key
+	aesKey, err := GenerateAESKey(32) // Generate a 32-byte key for AES-256
+	if err != nil {
+		log.Printf("Error generating AES key: %v", err)
+		return "", err
+	}
+
+	// Convert AES key to string for use
+	aesKeyStr := base64.URLEncoding.EncodeToString(aesKey)
+	fmt.Printf("Generated AES Key: %s\n", aesKeyStr) // For debugging purposes
 
 	// Create the token payload with the public key included
 	claims, err := CreatePayload(rsaPrivateKey, aesKey)
