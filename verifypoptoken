@@ -1,0 +1,199 @@
+package main
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/google/uuid"
+)
+
+// Function definitions (e.g., EncryptPrivateKey, CreatePayload, etc.)
+
+func main() {
+	token, err := GeneratePopToken()
+	if err != nil {
+		log.Fatalf("Error generating PoP token: %v", err)
+	}
+	fmt.Println("Generated PoP Token:", token)
+}
+
+// EncryptPrivateKey encrypts the private key using AES encryption.
+func EncryptPrivateKey(keyData []byte, aesKey []byte) (string, error) {
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return "", err
+	}
+
+	ciphertext := make([]byte, aes.BlockSize+len(keyData))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", err
+	}
+
+	stream := cipher.NewCFBEncrypter(block, iv)
+	stream.XORKeyStream(ciphertext[aes.BlockSize:], keyData)
+
+	return base64.URLEncoding.EncodeToString(ciphertext), nil
+}
+
+// CreatePayload creates a JWT payload including the encrypted private key.
+func CreatePayload(privateKey *rsa.PrivateKey, aesKey []byte) (jwt.MapClaims, error) {
+	dict := map[string]string{
+		"URI": "https://example.com", // Example URI, replace with actual
+	}
+
+	var lstEHTS []string
+	var strHeaders string
+	for key, value := range dict {
+		lstEHTS = append(lstEHTS, key)
+		strHeaders += value
+	}
+
+	strEHTS := strings.Join(lstEHTS, ";")
+
+	hash := sha256.New()
+	hash.Write([]byte(strHeaders))
+	strTemp := base64.URLEncoding.EncodeToString(hash.Sum(nil))
+
+	// Encrypt private key
+	privKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	encryptedPrivateKey, err := EncryptPrivateKey(privKeyBytes, aesKey)
+	if err != nil {
+		return nil, fmt.Errorf("error encrypting private key: %v", err)
+	}
+
+	// Create the token payload
+	dictBody := jwt.MapClaims{
+		"iat":  time.Now().Unix(),
+		"exp":  time.Now().Add(2 * time.Minute).Unix(),
+		"ehts": strEHTS,
+		"edts": strTemp[:len(strTemp)-1], // Ensure strTemp is non-empty
+		"jti":  uuid.New().String(),
+		"v":    1,
+		"epk":  encryptedPrivateKey, // Add encrypted private key
+	}
+
+	return dictBody, nil
+}
+
+// GetPrivateKeyFromPEM parses the private key from PEM format.
+func GetPrivateKeyFromPEM(pemData []byte) (interface{}, error) {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block containing private key")
+	}
+
+	// Parse the decrypted key using PKCS#8 format
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing private key: %v", err)
+	}
+
+	// Handle different key types
+	switch key := key.(type) {
+	case *rsa.PrivateKey:
+		fmt.Println("Successfully parsed RSA private key")
+		return key, nil
+	case *ecdsa.PrivateKey:
+		fmt.Println("Successfully parsed ECDSA private key")
+		return key, nil
+	case ed25519.PrivateKey:
+		fmt.Println("Successfully parsed Ed25519 private key")
+		return key, nil
+	default:
+		return nil, fmt.Errorf("unsupported key type")
+	}
+}
+
+// SignToken signs the payload using the private key to create the PoP token.
+func SignToken(claims jwt.MapClaims, privateKey *rsa.PrivateKey) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signedToken, err := token.SignedString(privateKey)
+	if err != nil {
+		log.Printf("Error while signing the token: %v", err)
+		return "", err
+	}
+	return signedToken, nil
+}
+
+// GeneratePopToken creates a JWT with encrypted private key and returns it.
+func GeneratePopToken() (string, error) {
+	// Load your private key from the PEM file
+	privateKeyPEM, err := os.ReadFile("private_key.pem") // Update path as needed
+	if err != nil {
+		log.Printf("Error reading private key: %v", err)
+		return "", err
+	}
+
+	privateKey, err := GetPrivateKeyFromPEM(privateKeyPEM)
+	if err != nil {
+		log.Printf("Error getting private key: %v", err)
+		return "", err
+	}
+
+	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
+	if !ok {
+		return "", fmt.Errorf("expected RSA private key")
+	}
+
+	// AES key for encrypting the private key (must be securely managed)
+	aesKey := []byte("your-32-byte-aes-key-here!") // Replace with a secure key
+
+	// Create the token payload with the public key included
+	claims, err := CreatePayload(rsaPrivateKey, aesKey)
+	if err != nil {
+		return "", err
+	}
+
+	// Sign the token
+	token, err := SignToken(claims, rsaPrivateKey)
+	if err != nil {
+		log.Printf("Error signing token: %v", err)
+		return "", err
+	}
+
+	// Optionally verify the token
+	claimsMap, err := VerifyJWT(token, &rsaPrivateKey.PublicKey)
+	if err != nil {
+		log.Printf("Token verification failed: %v", err)
+		return "", err
+	}
+
+	if claimsMap != nil {
+		log.Println("Token is valid")
+	}
+
+	return token, nil
+}
+
+// VerifyJWT verifies the JWT with RSA public key
+func VerifyJWT(tokenString string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return publicKey, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error parsing token: %v", err)
+	}
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		return claims, nil
+	}
+	return nil, fmt.Errorf("invalid token")
+}
