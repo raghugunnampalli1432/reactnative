@@ -1,0 +1,133 @@
+package main
+
+import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/pem"
+	"encoding/x509"
+	"fmt"
+	"log"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/google/uuid"
+	"honnef.co/go/tools/config"
+)
+
+// Function implementations
+
+// CreatePayload defines the payload of the PoP token, including necessary claims and attributes.
+func CreatePayload() jwt.MapClaims {
+	dict := map[string]string{
+		"URI": config.Config.PopToken.URI,
+	}
+	var lstEHTS []string
+	var strHeaders strings.Builder
+	for key, value := range dict {
+		lstEHTS = append(lstEHTS, key)
+		strHeaders.WriteString(value)
+	}
+	strEHTS := strings.Join(lstEHTS, ";")
+	hash := sha256.New()
+	hash.Write([]byte(strHeaders.String()))
+	strTemp := base64.URLEncoding.EncodeToString(hash.Sum(nil))
+	return jwt.MapClaims{
+		"iat":  time.Now().Unix(),
+		"exp":  time.Now().Add(2 * time.Minute).Unix(),
+		"ehts": strEHTS,
+		"edts": strTemp,
+		"jti":  uuid.New().String(),
+		"v":    1,
+	}
+}
+
+// GetPrivateKeyFromPEM parses the private key from PEM format.
+func GetPrivateKeyFromPEM(pemData []byte) (interface{}, error) {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block containing private key")
+	}
+
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing private key: %w", err)
+	}
+
+	switch key := key.(type) {
+	case *rsa.PrivateKey:
+		return key, nil
+	case *ecdsa.PrivateKey:
+		return key, nil
+	case ed25519.PrivateKey:
+		return key, nil
+	default:
+		return nil, fmt.Errorf("unsupported key type: %T", key)
+	}
+}
+
+// SignToken signs the payload using the private key to create the PoP token.
+func SignToken(claims jwt.MapClaims, privateKey *rsa.PrivateKey) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signedToken, err := token.SignedString(privateKey)
+	if err != nil {
+		return "", fmt.Errorf("error while signing the token: %w", err)
+	}
+	return signedToken, nil
+}
+
+// GeneratePopToken generates a PoP token.
+func GeneratePopToken() (string, error) {
+	privateKeyPEM, err := os.ReadFile(config.Config.PopToken.PrivateFileLoc)
+	if err != nil {
+		return "", fmt.Errorf("error reading private key: %w", err)
+	}
+
+	privateKey, err := GetPrivateKeyFromPEM(privateKeyPEM)
+	if err != nil {
+		return "", fmt.Errorf("error getting private key: %w", err)
+	}
+
+	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
+	if !ok {
+		return "", fmt.Errorf("expected RSA private key but got %T", privateKey)
+	}
+
+	claims := CreatePayload()
+	token, err := SignToken(claims, rsaPrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("error signing token: %w", err)
+	}
+
+	claimsMap, err := VerifyJWT(token, &rsaPrivateKey.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("token verification failed: %w", err)
+	}
+
+	if claimsMap != nil {
+		log.Println("Token is valid")
+	}
+
+	return token, nil
+}
+
+// VerifyJWT function to verify JWT with RSA public key
+func VerifyJWT(tokenString string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return publicKey, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error parsing token: %w", err)
+	}
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		return claims, nil
+	}
+	return nil, fmt.Errorf("invalid token")
+}
